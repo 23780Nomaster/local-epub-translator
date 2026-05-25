@@ -1,0 +1,207 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements_windows.txt
+
+      - name: Download translation model
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $model_dir = "models"
+          New-Item -ItemType Directory -Path $model_dir -Force
+          $model_file = "$model_dir/Hy-MT2-1.8B-Q8_0.gguf"
+          $url = "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q8_0.gguf"
+
+          if (Test-Path $model_file) {
+            Write-Host "Model already downloaded: $model_file"
+            exit 0
+          }
+
+          Write-Host "Downloading Hy-MT2 model (~3.5GB)..."
+          $attempt = 0
+          $maxAttempts = 3
+          do {
+            $attempt++
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $model_file -TimeoutSec 1800
+              break
+            } catch {
+              Write-Host "Attempt $attempt failed: $_"
+              if ($attempt -ge $maxAttempts) { throw }
+              Start-Sleep -Seconds 10
+            }
+          } while ($true)
+
+          $size = (Get-Item $model_file).Length
+          Write-Host "Model downloaded: $size bytes"
+
+      - name: Download llama-server.exe
+        shell: pwsh
+        run: |
+          $repo = "ggerganov/llama.cpp"
+          $r = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+          $a = $r.assets | Where-Object { $_.name -match "win-x64.*\.zip" } | Select-Object -First 1
+          if (-not $a) {
+            Write-Error "Could not find Windows binary in latest release"
+            exit 1
+          }
+          Write-Host "Downloading: $($a.name)"
+          Invoke-WebRequest -Uri $a.browser_download_url -OutFile llama-cpp.zip
+          Expand-Archive llama-cpp.zip -DestinationPath llama-cpp
+          $server = Get-ChildItem -Path llama-cpp -Recurse -Name "llama-server.exe" | Select-Object -First 1
+          Copy-Item "llama-cpp/$server" llama-server.exe
+          Remove-Item -Recurse llama-cpp, llama-cpp.zip
+          Write-Host "llama-server.exe: $((Get-Item llama-server.exe).Length) bytes"
+
+      - name: Download Tesseract portable
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          New-Item -ItemType Directory -Path tesseract/tessdata -Force
+
+          # Download tesseract.exe (portable build)
+          Write-Host "Downloading tesseract.exe..."
+          $teUrl = "https://github.com/nicdumz/ghostscript-mupdf-tesseract/releases/download/tesseract-5.5.0/tesseract-5.5.0-w64.zip"
+          try {
+            Invoke-WebRequest -Uri $teUrl -OutFile te.zip -TimeoutSec 120
+            Expand-Archive te.zip -DestinationPath te_ext
+            $texe = Get-ChildItem -Path te_ext -Recurse -Name "tesseract.exe" | Select-Object -First 1
+            if ($texe) { Copy-Item "te_ext/$texe" tesseract/tesseract.exe }
+            Remove-Item -Recurse te_ext, te.zip -ErrorAction SilentlyContinue
+            Write-Host "tesseract.exe: $((Get-Item tesseract/tesseract.exe).Length) bytes"
+          } catch {
+            Write-Host "WARNING: tesseract.exe download failed: $_"
+          }
+
+          # Download tessdata language files (chi_sim + eng)
+          Write-Host "Downloading tessdata language files..."
+          $tessdataBase = "https://raw.githubusercontent.com/tesseract-ocr/tessdata/main"
+          foreach ($lang in @("chi_sim", "eng")) {
+            $langUrl = "$tessdataBase/$lang.traineddata"
+            $langFile = "tesseract/tessdata/$lang.traineddata"
+            if (Test-Path $langFile) { continue }
+            try {
+              Invoke-WebRequest -Uri $langUrl -OutFile $langFile -TimeoutSec 60
+              Write-Host "  $lang.traineddata: $((Get-Item $langFile).Length) bytes"
+            } catch {
+              Write-Host "  WARNING: $lang.traineddata download failed"
+            }
+          }
+          Write-Host "Tesseract portable ready"
+
+      - name: Build exe with PyInstaller
+        run: pyinstaller --clean --noconfirm epub_translator.spec
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $pkg = "release/EPUB-Translator"
+          New-Item -ItemType Directory -Path $pkg -Force
+
+          # Main exe
+          Copy-Item dist/EPUB-Translator.exe $pkg/
+
+          # llama-server (required)
+          if (Test-Path llama-server.exe) { Copy-Item llama-server.exe $pkg/ }
+
+          # Tesseract portable (optional, for scanned EPUBs)
+          if (Test-Path tesseract/tesseract.exe) {
+            Copy-Item -Recurse tesseract $pkg/tesseract
+          }
+
+          # Translation model
+          if (Test-Path models/Hy-MT2-1.8B-Q8_0.gguf) {
+            New-Item -ItemType Directory -Path "$pkg/models" -Force
+            Copy-Item models/Hy-MT2-1.8B-Q8_0.gguf $pkg/models/
+          }
+
+          # Readme
+          @"
+          EPUB Translator — 本地离线 EPUB 翻译工具
+          ==========================================
+
+          开箱即用，无需安装任何依赖！
+
+          使用方法:
+            1. 双击 EPUB-Translator.exe 启动
+            2. 选择要翻译的 EPUB 文件
+            3. 选择目标语言（模型已内置，自动检测）
+            4. 点击"开始"即可翻译
+
+          包含内容:
+            EPUB-Translator.exe  — 主程序（桌面窗口）
+            llama-server.exe    — 本地翻译推理引擎
+            tesseract/          — OCR 引擎（扫描版 EPUB）
+            models/             — 翻译模型 Hy-MT2-1.8B (3.5GB)
+
+          翻译流程:
+            文本文档 → 直接提取文本翻译
+            扫描文档 → OCR 识别图片文字后翻译（自动检测）
+
+          提示:
+            - 翻译中可随时暂停/继续
+            - 关闭程序后自动保存断点，下次可续传
+            - 输出文件在同目录下，文件名为 <原名>.translated.epub
+          "@ | Out-File -FilePath "$pkg/使用说明.txt" -Encoding UTF8
+
+          # Create zip
+          Write-Host "Creating zip archive..."
+          Compress-Archive -Path "$pkg/*" -DestinationPath release/EPUB-Translator-windows.zip
+          $zipSize = (Get-Item release/EPUB-Translator-windows.zip).Length
+          $sizeGB = [math]::Round($zipSize/1GB, 2)
+          Write-Host "Package created: release/EPUB-Translator-windows.zip ($sizeGB GB)"
+
+          # Split if exceeds GitHub 2GB limit
+          if ($zipSize -gt 2GB) {
+            Write-Host "Splitting archive (exceeds 2GB GitHub limit)..."
+            & 7z a -v1900m release/EPUB-Translator-windows.7z release/EPUB-Translator-windows.zip
+            Remove-Item release/EPUB-Translator-windows.zip
+            Write-Host "Split archives:"
+            Get-ChildItem release/EPUB-Translator-windows.7z.* | ForEach-Object { Write-Host "  $($_.Name) ($([math]::Round($_.Length/1MB, 1)) MB)" }
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EPUB-Translator-windows
+          path: release/EPUB-Translator-windows.*
+
+      - name: Upload to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/EPUB-Translator-windows.*
+          body: |
+            ## EPUB Translator for Windows
+
+            开箱即用的离线 EPUB 翻译工具。下载解压后双击 `EPUB-Translator.exe` 即可使用。
+
+            ### 包含内容
+            - EPUB-Translator.exe — 桌面窗口主程序
+            - llama-server.exe — 翻译推理引擎
+            - tesseract/ — OCR 引擎
+            - models/Hy-MT2-1.8B-Q8_0.gguf — 翻译模型
+
+            ### 使用方法
+            1. 下载所有分卷文件（如有多卷）
+            2. 用 7-Zip 解压 `.7z.001` 文件（或合并 zip 分卷后用系统解压）
+            3. 双击 EPUB-Translator.exe
+            4. 选择 EPUB 文件，点击"开始"

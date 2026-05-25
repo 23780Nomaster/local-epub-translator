@@ -4,7 +4,13 @@ import subprocess
 import time
 import signal
 import os
+import sys
 import requests
+
+IS_WINDOWS = sys.platform == "win32"
+
+# Directory where the exe/binary lives (for bundled dependency detection)
+_EXE_DIR = os.path.dirname(os.path.abspath(sys.executable))
 
 
 def _find_free_port() -> int:
@@ -13,22 +19,59 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _server_binary_name() -> str:
+    return "llama-server.exe" if IS_WINDOWS else "llama-server"
+
+
+def _find_server_binary() -> str:
+    """Find llama-server binary. Search order:
+    1. Bundled alongside the exe (portable package)
+    2. Bundled in bin/ subdirectory
+    3. User install: ~/.local/llama-cpp/
+    4. System PATH (bare binary name)
+    """
+    name = _server_binary_name()
+    candidates = [
+        os.path.join(_EXE_DIR, name),
+        os.path.join(_EXE_DIR, "bin", name),
+        os.path.join(os.path.expanduser("~"), ".local", "llama-cpp", name),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return name
+
+
 class TranslationServer:
-    def __init__(self, model_path: str, llama_bin_dir: str = "~/.local/llama-cpp"):
+    def __init__(self, model_path: str, llama_bin_dir: str = None):
         self.model_path = os.path.expanduser(model_path)
-        self.llama_bin_dir = os.path.expanduser(llama_bin_dir)
+        if llama_bin_dir is not None:
+            self.server_bin = os.path.join(os.path.expanduser(llama_bin_dir), _server_binary_name())
+        else:
+            self.server_bin = _find_server_binary()
         self.port = _find_free_port()
         self._proc = None
 
     def start(self):
-        server_bin = os.path.join(self.llama_bin_dir, "llama-server")
-        lib_dir = self.llama_bin_dir
+        bin_dir = os.path.dirname(self.server_bin)
         env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = lib_dir + ":" + env.get("LD_LIBRARY_PATH", "")
+
+        if IS_WINDOWS:
+            env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+        else:
+            env["LD_LIBRARY_PATH"] = bin_dir + ":" + env.get("LD_LIBRARY_PATH", "")
+
+        popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+            "env": env,
+        }
+        if IS_WINDOWS:
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore
 
         self._proc = subprocess.Popen(
             [
-                server_bin,
+                self.server_bin,
                 "-m", self.model_path,
                 "--port", str(self.port),
                 "-ngl", "0",
@@ -36,9 +79,7 @@ class TranslationServer:
                 "--batch-size", "512",
                 "--no-webui",
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            env=env,
+            **popen_kwargs,
         )
         self._wait_ready()
 
@@ -47,7 +88,9 @@ class TranslationServer:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._proc.poll() is not None:
-                stderr = self._proc.stderr.read().decode(errors="replace") if self._proc.stderr else ""
+                stderr = ""
+                if self._proc.stderr:
+                    stderr = self._proc.stderr.read().decode(errors="replace")
                 raise RuntimeError(f"llama-server exited early: {stderr}")
             try:
                 r = requests.get(url, timeout=2)
@@ -60,7 +103,10 @@ class TranslationServer:
 
     def stop(self):
         if self._proc:
-            self._proc.send_signal(signal.SIGTERM)
+            if IS_WINDOWS:
+                self._proc.terminate()
+            else:
+                self._proc.send_signal(signal.SIGTERM)
             try:
                 self._proc.wait(timeout=10)
             except subprocess.TimeoutExpired:

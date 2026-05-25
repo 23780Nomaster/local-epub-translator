@@ -39,6 +39,8 @@ state = {
     "ram_total_gb": 0.0,
     "model_name": "",
     "completed_on_resume": 0,
+    "start_time": 0.0,
+    "eta_seconds": -1,
 }
 _lock = threading.Lock()
 _pause_event = threading.Event()
@@ -61,7 +63,7 @@ def _set_status(status, message=None):
 
 
 def _hardware_monitor():
-    """Background thread: update CPU/RAM readings every 1s."""
+    """Background thread: update CPU/RAM readings and ETA every 1s."""
     while state["status"] in ("running", "paused"):
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
@@ -70,6 +72,18 @@ def _hardware_monitor():
             state["ram_percent"] = round(mem.percent, 1)
             state["ram_used_gb"] = round(mem.used / (1024**3), 1)
             state["ram_total_gb"] = round(mem.total / (1024**3), 1)
+            # ETA calculation
+            if state["start_time"] > 0 and state["progress"] > state.get("completed_on_resume", 0):
+                elapsed = time.time() - state["start_time"]
+                done = state["progress"] - state.get("completed_on_resume", 0)
+                remaining = state["total"] - state["progress"]
+                if done > 0 and remaining > 0:
+                    speed = elapsed / done
+                    state["eta_seconds"] = int(remaining * speed)
+                else:
+                    state["eta_seconds"] = -1
+            else:
+                state["eta_seconds"] = -1
         time.sleep(1.0)
 
 
@@ -199,6 +213,7 @@ def api_state():
             "target_lang", "progress", "total", "message", "error",
             "scanned", "cpu_percent", "ram_percent", "ram_used_gb",
             "ram_total_gb", "model_name", "completed_on_resume",
+            "start_time", "eta_seconds",
         ]})
 
 
@@ -243,6 +258,8 @@ def api_start():
         error=None,
         model_name=model_name,
         completed_on_resume=len(_checkpoint.completed) if _checkpoint else 0,
+        start_time=time.time(),
+        eta_seconds=-1,
     )
 
     _pause_event.set()
@@ -287,6 +304,7 @@ def api_resume():
         if state["status"] == "paused":
             state["status"] = "running"
             state["message"] = "恢复翻译..."
+            state["start_time"] = time.time()
 
     # restart server
     try:
@@ -488,6 +506,7 @@ button.secondary:hover { background: #1a4a8a; }
       <div class="progress-text" id="progress-label">0%</div>
     </div>
     <div id="status-text">就绪</div>
+    <div id="eta-text" style="font-size:0.85em;color:#a0a0b0;margin-top:4px;"></div>
   </div>
 
   <div class="buttons">
@@ -515,6 +534,7 @@ button.secondary:hover { background: #1a4a8a; }
     </div>
     <div style="margin-top:12px;font-size:0.85em;">
       <div>模型: <span id="model-display">--</span></div>
+      <div>输出: <span id="output-display" style="color:#a0a0b0;">--</span></div>
       <div style="color:#a0a0b0;">模式: <span id="mode-display-2">--</span></div>
     </div>
   </div>
@@ -522,7 +542,7 @@ button.secondary:hover { background: #1a4a8a; }
 
 <script>
 let polling = null;
-let currentDir = '/home/jeffhan';
+let currentDir = '';
 
 async function api(url, body) {
   const r = await fetch(url, {
@@ -541,6 +561,16 @@ async function poll() {
     pct + '%  (' + s.progress + '/' + s.total + ')';
   document.getElementById('status-text').textContent = s.message || s.status;
 
+  // ETA
+  const etaEl = document.getElementById('eta-text');
+  if (s.eta_seconds > 0) {
+    const m = Math.floor(s.eta_seconds / 60);
+    const sec = s.eta_seconds % 60;
+    etaEl.textContent = '预计剩余: ' + (m > 0 ? m + '分' : '') + sec + '秒';
+  } else {
+    etaEl.textContent = '';
+  }
+
   // buttons
   const running = s.status === 'running';
   const paused = s.status === 'paused';
@@ -557,6 +587,7 @@ async function poll() {
     s.ram_used_gb ? s.ram_used_gb + 'G / ' + s.ram_total_gb + 'G' : '--';
   document.getElementById('ram-bar').style.width = (s.ram_percent || 0) + '%';
   document.getElementById('model-display').textContent = s.model_name || '--';
+  document.getElementById('output-display').textContent = s.output_path || '--';
   document.getElementById('mode-display-2').textContent =
     s.scanned ? '扫描文档 (OCR + 翻译)' : (s.mode ? '文本文档 (直接翻译)' : '--');
   const badge = s.scanned
@@ -615,7 +646,7 @@ async function toggleBrowser() {
 }
 
 async function browse(dir) {
-  const r = await api('/api/browse', {path: dir});
+  const r = await api('/api/browse', {path: dir || ''});
   if (!r.ok) return;
   currentDir = r.current;
   document.getElementById('browser-path').textContent = r.current;

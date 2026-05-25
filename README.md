@@ -1,6 +1,6 @@
 # local-epub-translator
 
-基于腾讯 Hy-MT2 模型翻译、Tesseract 本地 OCR 识别的离线 EPUB 翻译工具。全部代码由 DeepSeekV4-pro 撰写。
+基于腾讯 Hy-MT2 模型翻译、Tesseract 本地 OCR 识别的离线 EPUB 翻译工具。**全部代码由 DeepSeekV4-pro 撰写**。
 
 ## 功能
 
@@ -82,6 +82,14 @@ epub-translator/
 ├── checkpoint.py     # 断点续传状态管理
 └── requirements.txt
 ```
+
+## 待开发功能
+
+- linux、Windows、macOS桌面封装app
+- 可更换模型
+- 对更多翻译格式的支持
+- 代码优化
+
 
 ## 依赖模型
 

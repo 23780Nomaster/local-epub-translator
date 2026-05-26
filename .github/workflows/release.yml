@@ -55,18 +55,27 @@ jobs:
 
       - name: Download llama-server.exe
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $repo = "ggerganov/llama.cpp"
-          $r = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
-          $a = $r.assets | Where-Object { $_.name -match "win-x64.*\.zip" } | Select-Object -First 1
-          if (-not $a) {
-            Write-Error "Could not find Windows binary in latest release"
+          # Use gh CLI (authenticated) to find latest release asset URL
+          $dlUrl = gh api repos/ggerganov/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("win-.*x64.*\\\\.zip")) | .browser_download_url' | Select-Object -First 1
+          if (-not $dlUrl) {
+            # Fallback: try broader pattern
+            $dlUrl = gh api repos/ggerganov/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("(?i)win.*zip")) | .browser_download_url' | Select-Object -First 1
+          }
+          if (-not $dlUrl) {
+            Write-Error "Could not find Windows binary in latest llama.cpp release"
             exit 1
           }
-          Write-Host "Downloading: $($a.name)"
-          Invoke-WebRequest -Uri $a.browser_download_url -OutFile llama-cpp.zip
+          Write-Host "Downloading: $dlUrl"
+          Invoke-WebRequest -Uri $dlUrl -OutFile llama-cpp.zip
           Expand-Archive llama-cpp.zip -DestinationPath llama-cpp
           $server = Get-ChildItem -Path llama-cpp -Recurse -Name "llama-server.exe" | Select-Object -First 1
+          if (-not $server) {
+            Write-Error "llama-server.exe not found in downloaded archive"
+            exit 1
+          }
           Copy-Item "llama-cpp/$server" llama-server.exe
           Remove-Item -Recurse llama-cpp, llama-cpp.zip
           Write-Host "llama-server.exe: $((Get-Item llama-server.exe).Length) bytes"

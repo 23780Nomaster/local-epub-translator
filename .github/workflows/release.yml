@@ -58,22 +58,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Use gh CLI (authenticated) to find latest release asset URL
-          $dlUrl = gh api repos/ggerganov/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("win-.*x64.*\\\\.zip")) | .browser_download_url' | Select-Object -First 1
+          # List all Windows assets for debugging
+          Write-Host "Available Windows assets:"
+          gh api repos/ggml-org/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("(?i)win")) | "  \(.name)  (\(.size) bytes)"'
+
+          # Match: llama-b*-bin-win-*-x64.zip (NOT cudart-*)
+          $dlUrl = gh api repos/ggml-org/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("^llama-b[0-9]+-bin-win-.*-x64\\\\.zip$")) | .browser_download_url' | Select-Object -First 1
           if (-not $dlUrl) {
-            # Fallback: try broader pattern
-            $dlUrl = gh api repos/ggerganov/llama.cpp/releases/latest --jq '.assets[] | select(.name | test("(?i)win.*zip")) | .browser_download_url' | Select-Object -First 1
-          }
-          if (-not $dlUrl) {
-            Write-Error "Could not find Windows binary in latest llama.cpp release"
+            Write-Error "Could not find llama.cpp Windows binary. Check available assets above."
             exit 1
           }
           Write-Host "Downloading: $dlUrl"
           Invoke-WebRequest -Uri $dlUrl -OutFile llama-cpp.zip
-          Expand-Archive llama-cpp.zip -DestinationPath llama-cpp
+          Expand-Archive llama-cpp.zip -DestinationPath llama-cpp -Force
+
+          # Debug: list all exe/dll files in archive
+          Write-Host "Archive contents (exe/dll):"
+          Get-ChildItem -Path llama-cpp -Recurse -Include "*.exe","*.dll" | ForEach-Object { Write-Host "  $($_.FullName)" }
+
           $server = Get-ChildItem -Path llama-cpp -Recurse -Name "llama-server.exe" | Select-Object -First 1
           if (-not $server) {
-            Write-Error "llama-server.exe not found in downloaded archive"
+            Write-Error "llama-server.exe not found in archive"
             exit 1
           }
           Copy-Item "llama-cpp/$server" llama-server.exe

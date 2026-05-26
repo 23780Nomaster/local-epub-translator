@@ -58,36 +58,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # List all available Windows assets
-          Write-Host "Available Windows assets:"
-          gh api repos/ggml-org/llama.cpp/releases/latest --jq '.assets[].name' | ForEach-Object { Write-Host "  $_" }
-
-          # Find the main llama.cpp binary (llama-b*-bin-win-*x64.zip, NOT cudart)
-          $name = gh api repos/ggml-org/llama.cpp/releases/latest --jq '.assets[].name' |
-                  Select-String '^llama-b\d+-bin-win-.*x64\.zip$' |
-                  Select-Object -First 1
-          if (-not $name) {
-            Write-Error "Could not find matching asset"
-            exit 1
-          }
-          Write-Host "Selected: $name"
-
-          $dlUrl = "https://github.com/ggml-org/llama.cpp/releases/latest/download/$name"
-          Write-Host "Downloading: $dlUrl"
-          Invoke-WebRequest -Uri $dlUrl -OutFile llama-cpp.zip
+          $tag = gh release view --repo ggml-org/llama.cpp --json tagName -q '.tagName'
+          Write-Host "Latest tag: $tag"
+          $url = "https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-$tag-bin-win-cpu-x64.zip"
+          Write-Host "Downloading: $url"
+          Invoke-WebRequest -Uri $url -OutFile llama-cpp.zip
           Expand-Archive llama-cpp.zip -DestinationPath llama-cpp -Force
-
-          Write-Host "Archive .exe files:"
-          Get-ChildItem llama-cpp -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "  $($_.FullName)" }
-
-          $server = Get-ChildItem llama-cpp -Recurse -Filter "llama-server.exe" | Select-Object -First 1
-          if (-not $server) {
-            Write-Error "llama-server.exe not found in archive"
-            exit 1
-          }
-          Copy-Item $server.FullName llama-server.exe
+          $s = Get-ChildItem llama-cpp -Recurse -Filter "llama-server.exe" | Select-Object -First 1
+          if (-not $s) { Write-Error "llama-server.exe not found"; exit 1 }
+          Copy-Item $s.FullName llama-server.exe
           Remove-Item -Recurse llama-cpp, llama-cpp.zip -ErrorAction SilentlyContinue
-          Write-Host "llama-server.exe: $((Get-Item llama-server.exe).Length) bytes"
+          Write-Host "Done: $((Get-Item llama-server.exe).Length) bytes"
           Write-Host "llama-server.exe: $((Get-Item llama-server.exe).Length) bytes"
 
       - name: Download Tesseract portable

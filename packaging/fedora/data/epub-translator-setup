@@ -1,0 +1,162 @@
+#!/bin/bash
+# EPUB Translator — complete setup script.
+# Downloads all required models and components.
+# Run after installing the RPM: epub-translator-setup
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo "============================================"
+echo "  EPUB Translator — Setup"
+echo "============================================"
+echo ""
+
+# ── Step 1: Tesseract language packs ────────────────────────────
+echo -e "${YELLOW}[1/3] Checking Tesseract language data...${NC}"
+MISSING_LANG=()
+for lang in chi_sim eng jpn chi_tra; do
+    if rpm -q "tesseract-langpack-${lang}" &>/dev/null; then
+        echo "  OK  tesseract-langpack-${lang}"
+    else
+        echo "  MISS  tesseract-langpack-${lang}"
+        MISSING_LANG+=("tesseract-langpack-${lang}")
+    fi
+done
+
+if [[ ${#MISSING_LANG[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "${YELLOW}Installing missing Tesseract language packs via dnf...${NC}"
+    sudo dnf install -y "${MISSING_LANG[@]}"
+fi
+echo -e "${GREEN}Tesseract language data: OK${NC}"
+echo ""
+
+# ── Step 2: llama.cpp (llama-server) ────────────────────────────
+LLAMA_DIR="${LLAMA_DIR:-$HOME/.local/llama-cpp}"
+LLAMA_BIN="$LLAMA_DIR/llama-server"
+
+echo -e "${YELLOW}[2/3] Checking llama-server...${NC}"
+if [[ -x "$LLAMA_BIN" ]]; then
+    echo "  Found: $LLAMA_BIN"
+    echo -e "${GREEN}llama-server: OK${NC}"
+else
+    echo "  llama-server not found at $LLAMA_DIR"
+    echo ""
+    echo "  Choose install method:"
+    echo "    [1] Download pre-built release binary (recommended)"
+    echo "    [2] Skip (I'll install manually)"
+    echo ""
+    read -rp "  Choice [1/2]: " choice
+
+    case "${choice:-1}" in
+        1)
+            echo "  Downloading llama.cpp release..."
+            mkdir -p "$LLAMA_DIR"
+
+            # Detect latest release tag
+            LATEST_TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest \
+                | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+
+            if [[ -z "$LATEST_TAG" ]]; then
+                echo -e "${RED}Failed to fetch latest llama.cpp version. Please install manually.${NC}"
+                echo "  https://github.com/ggerganov/llama.cpp/releases"
+            else
+                echo "  Latest release: $LATEST_TAG"
+                RELEASE_URL="https://github.com/ggerganov/llama.cpp/releases/download/${LATEST_TAG}"
+
+                # Determine arch
+                ARCH=$(uname -m)
+                case "$ARCH" in
+                    x86_64)  BINARY_TAG="llama-binary-linux-x64" ;;
+                    aarch64) BINARY_TAG="llama-binary-linux-arm64" ;;
+                    *)       echo -e "${RED}Unsupported architecture: $ARCH${NC}"; exit 1 ;;
+                esac
+
+                TARBALL="${BINARY_TAG}.tar.gz"
+                echo "  Downloading $TARBALL ..."
+                curl -L --progress-bar -o "/tmp/$TARBALL" "$RELEASE_URL/$TARBALL"
+
+                echo "  Extracting..."
+                tar xzf "/tmp/$TARBALL" -C "$LLAMA_DIR"
+                rm -f "/tmp/$TARBALL"
+
+                # Find llama-server in extracted dir
+                SERVER_PATH=$(find "$LLAMA_DIR" -name "llama-server" -type f | head -1)
+                if [[ -n "$SERVER_PATH" ]]; then
+                    echo -e "${GREEN}llama-server installed: $SERVER_PATH${NC}"
+                else
+                    echo -e "${RED}llama-server not found in extracted files.${NC}"
+                    echo "  Please install manually: https://github.com/ggerganov/llama.cpp/releases"
+                fi
+            fi
+            ;;
+        2)
+            echo "  Skipped. Install llama-server manually to: $LLAMA_DIR"
+            echo "  https://github.com/ggerganov/llama.cpp/releases"
+            ;;
+    esac
+fi
+echo ""
+
+# ── Step 3: Translation model (Hy-MT2 GGUF) ─────────────────────
+MODEL_DIR="${MODEL_DIR:-$HOME/models}"
+MODEL_Q8="$MODEL_DIR/Hy-MT2-1.8B-Q8_0.gguf"
+MODEL_Q4="$MODEL_DIR/Hy-MT2-1.8B-Q4_K_M.gguf"
+
+echo -e "${YELLOW}[3/3] Checking translation model...${NC}"
+if [[ -f "$MODEL_Q8" ]]; then
+    SIZE=$(du -h "$MODEL_Q8" | cut -f1)
+    echo "  Found Q8_0 model: $MODEL_Q8 ($SIZE)"
+    echo -e "${GREEN}Translation model: OK${NC}"
+elif [[ -f "$MODEL_Q4" ]]; then
+    SIZE=$(du -h "$MODEL_Q4" | cut -f1)
+    echo "  Found Q4_K_M model: $MODEL_Q4 ($SIZE)"
+    echo -e "${GREEN}Translation model: OK${NC}"
+else
+    echo "  No translation model found."
+    echo ""
+    echo "  Choose model quality:"
+    echo "    [1] Q8_0 (~1.8GB, best quality, recommended)"
+    echo "    [2] Q4_K_M (~1.0GB, good quality, smaller)"
+    echo "    [3] Skip (I'll download manually)"
+    echo ""
+    read -rp "  Choice [1/2/3]: " choice
+
+    HF_BASE="https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main"
+    case "${choice:-1}" in
+        1)
+            MODEL="$MODEL_NAME_Q8"
+            MODEL_FILE="Hy-MT2-1.8B-Q8_0.gguf"
+            ;;
+        2)
+            MODEL_FILE="Hy-MT2-1.8B-Q4_K_M.gguf"
+            ;;
+        3)
+            echo "  Skipped. Download manually:"
+            echo "  curl -L -o ~/models/Hy-MT2-1.8B-Q8_0.gguf \\"
+            echo "    $HF_BASE/Hy-MT2-1.8B-Q8_0.gguf"
+            MODEL_FILE=""
+            ;;
+    esac
+
+    if [[ -n "$MODEL_FILE" ]]; then
+        mkdir -p "$MODEL_DIR"
+        echo "  Downloading $MODEL_FILE ..."
+        curl -L --progress-bar -o "$MODEL_DIR/$MODEL_FILE" "$HF_BASE/$MODEL_FILE"
+        echo -e "${GREEN}Translation model installed: $MODEL_DIR/$MODEL_FILE${NC}"
+        echo "  Size: $(du -h "$MODEL_DIR/$MODEL_FILE" | cut -f1)"
+    fi
+fi
+echo ""
+
+echo "============================================"
+echo -e "${GREEN}  Setup complete!${NC}"
+echo "============================================"
+echo ""
+echo "  You can now run:  epub-translator-gnome"
+echo "  Or launch from the GNOME application menu."
+echo ""

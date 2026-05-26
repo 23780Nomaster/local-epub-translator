@@ -1,0 +1,6 @@
+#!/usr/bin/python3
+"""Wrapper script to launch the EPUB Translator GNOME application."""
+import sys
+sys.path.insert(0, "/usr/lib/epub-translator")
+from epub_translator.gnome_app import main
+sys.exit(main())

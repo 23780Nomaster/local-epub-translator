@@ -1,0 +1,56 @@
+#!/bin/bash
+# Download the Hy-MT2 translation model for EPUB Translator.
+# Usage: epub-translator-download-model [q8|q4]
+#   q8  — Q8_0 (1.8GB, best quality, default)
+#   q4  — Q4_K_M (1.0GB, smaller, good quality)
+
+set -euo pipefail
+
+MODEL_DIR="${MODEL_DIR:-$HOME/models}"
+MODEL_NAME_Q8="Hy-MT2-1.8B-Q8_0.gguf"
+MODEL_NAME_Q4="Hy-MT2-1.8B-Q4_K_M.gguf"
+HF_BASE="https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main"
+
+QUALITY="${1:-q8}"
+
+case "$QUALITY" in
+    q8|Q8)
+        MODEL="$MODEL_NAME_Q8"
+        SIZE="~1.8GB"
+        ;;
+    q4|Q4)
+        MODEL="$MODEL_NAME_Q4"
+        SIZE="~1.0GB"
+        ;;
+    *)
+        echo "Usage: $0 [q8|q4]"
+        echo "  q8 — Q8_0 (1.8GB, best quality, default)"
+        echo "  q4 — Q4_K_M (1.0GB, smaller, good quality)"
+        exit 1
+        ;;
+esac
+
+mkdir -p "$MODEL_DIR"
+DEST="$MODEL_DIR/$MODEL"
+
+if [[ -f "$DEST" ]]; then
+    echo "Model already exists: $DEST"
+    echo "Size: $(du -h "$DEST" | cut -f1)"
+    read -rp "Re-download? [y/N] " yn
+    case "$yn" in
+        [Yy]*) ;;
+        *) echo "Skipping."; exit 0 ;;
+    esac
+fi
+
+echo "Downloading $MODEL ($SIZE) to $DEST ..."
+echo "This may take a while depending on your connection speed."
+echo ""
+
+curl -L --progress-bar -o "$DEST" "$HF_BASE/$MODEL"
+
+echo ""
+echo "Download complete: $DEST"
+echo "Size: $(du -h "$DEST" | cut -f1)"
+echo ""
+echo "Model ready. You can now start EPUB Translator."

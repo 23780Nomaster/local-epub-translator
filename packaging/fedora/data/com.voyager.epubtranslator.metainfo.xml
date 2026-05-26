@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.voyager.epubtranslator</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>EPUB Translator</name>
+  <name xml:lang="zh_CN">EPUB 翻译器</name>
+  <summary>Translate EPUB books using local AI models</summary>
+  <summary xml:lang="zh_CN">使用本地 AI 模型翻译 EPUB 电子书</summary>
+
+  <description>
+    <p>
+      A fully offline EPUB translator that runs completely on your local machine.
+      Supports both text-based and scanned/image-based EPUB files using OCR.
+    </p>
+    <p>
+      Features:
+      - Text direct translation for standard EPUBs
+      - OCR + translation for scanned/image-based EPUBs
+      - Checkpoint/resume support — never lose progress
+      - Real-time hardware resource monitoring (CPU, RAM)
+      - Native GNOME desktop interface
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.voyager.epubtranslator.desktop</launchable>
+
+  <url type="homepage">https://github.com/23780Nomaster/local-epub-translator</url>
+
+  <developer_name>Voyager</developer_name>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <recommends>
+    <memory>8</memory>
+  </recommends>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.2.0" date="2026-05-25">
+      <description>
+        <p>GNOME desktop application with GTK4 + Libadwaita. RPM packaging for Fedora.</p>
+      </description>
+    </release>
+  </releases>
+</component>

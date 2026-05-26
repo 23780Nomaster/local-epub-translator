@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3584e4"/>
+      <stop offset="100%" stop-color="#1a5fb4"/>
+    </linearGradient>
+  </defs>
+  <!-- background rounded square -->
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#bg)"/>
+  <!-- book pages -->
+  <path d="M38 32 L38 96 L62 88 L62 28 Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M58 30 L58 90 L86 96 L86 34 Z" fill="#deddda" opacity="0.9"/>
+  <!-- text lines left page -->
+  <rect x="43" y="40" width="15" height="3" rx="1" fill="#3584e4" opacity="0.5"/>
+  <rect x="43" y="48" width="15" height="3" rx="1" fill="#3584e4" opacity="0.5"/>
+  <rect x="43" y="56" width="11" height="3" rx="1" fill="#3584e4" opacity="0.5"/>
+  <rect x="43" y="64" width="15" height="3" rx="1" fill="#3584e4" opacity="0.5"/>
+  <rect x="43" y="72" width="9" height="3" rx="1" fill="#3584e4" opacity="0.5"/>
+  <!-- text lines right page -->
+  <rect x="63" y="42" width="17" height="3" rx="1" fill="#3584e4" opacity="0.4"/>
+  <rect x="63" y="50" width="17" height="3" rx="1" fill="#3584e4" opacity="0.4"/>
+  <rect x="63" y="58" width="13" height="3" rx="1" fill="#3584e4" opacity="0.4"/>
+  <rect x="63" y="66" width="17" height="3" rx="1" fill="#3584e4" opacity="0.4"/>
+  <!-- translation arrow -->
+  <g transform="translate(82, 74)">
+    <circle cx="0" cy="0" r="14" fill="#f5c211"/>
+    <text x="0" y="5" text-anchor="middle" font-size="14" font-weight="bold" fill="#241f31">A</text>
+  </g>
+  <!-- spine line -->
+  <line x1="56" y1="30" x2="56" y2="90" stroke="#000000" stroke-width="1" opacity="0.1"/>
+</svg>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=EPUB Translator
+Name[zh_CN]=EPUB 翻译器
+Comment=Translate EPUB books using local AI models
+Comment[zh_CN]=使用本地 AI 模型翻译 EPUB 电子书
+Exec=epub-translator-gnome
+Icon=com.voyager.epubtranslator
+Terminal=false
+Categories=Utility;Office;Translation;
+Keywords=epub;translate;book;ai;llm;ocr;
+StartupNotify=true
